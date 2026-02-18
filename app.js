@@ -486,7 +486,7 @@ function renderNearbyResults(clickLat, clickLng) {
 
   summaryEl.textContent = `Found ${totalMatches} places/projects within category-specific radii around (${clickLat.toFixed(
     5
-  )}, ${clickLng.toFixed(5)}).`;
+  )}, ${clickLng.toFixed(5)}). Transit is limited to ${TRANSIT_RADIUS_MILES} miles; all other categories use ${SEARCH_RADIUS_MILES} miles.`;
 }
 
 function formatDate(raw) {
