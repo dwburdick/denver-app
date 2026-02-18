@@ -15,12 +15,14 @@
   <body>
     <main class="layout">
       <section class="map-panel">
-        <h1>Denver 1.5-Mile Site Context Map</h1>
+        <h1>Denver Site Context Map</h1>
         <p>
           Click any point on the map to find nearby Site Development Plans, construction,
-          RNOs, grocery stores, transit stops, libraries, and restaurants within 1.5 miles.
-          Site Development Plans and RNOs are requested from Denver Open Data services, and
-          transit stops are requested from live OpenStreetMap transit features.
+          RNOs, grocery stores, transit stops, and libraries near the point clicked.
+          Transit stops are filtered to 0.25 miles and include served lines; all other
+          categories are filtered to 1.5 miles. Site Development Plans and RNOs are
+          requested from Denver Open Data services, with fallback samples used if live
+          services are unavailable.
         </p>
         <p id="loading" class="status">Loading datasets…</p>
         <div id="map" aria-label="Map of Denver"></div>

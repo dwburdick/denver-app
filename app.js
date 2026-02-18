@@ -1,4 +1,5 @@
 const SEARCH_RADIUS_MILES = 1.5;
+const TRANSIT_RADIUS_MILES = 0.25;
 const DENVER_CENTER = [39.7392, -104.9903];
 const DENVER_BBOX = {
   south: 39.614,
@@ -12,6 +13,7 @@ const categories = {
     label: "Site Development Plans",
     color: "#2f6ee4",
     sourceLabel: "City and County of Denver Open Data",
+    radiusMiles: SEARCH_RADIUS_MILES,
     items: [],
     fallbackItems: [
       { name: "Broadway Mixed-Use SDP", details: "Sample fallback record", lat: 39.7206, lng: -104.9873 }
@@ -21,6 +23,7 @@ const categories = {
     label: "Construction",
     color: "#f18f01",
     sourceLabel: "Local sample",
+    radiusMiles: SEARCH_RADIUS_MILES,
     items: [
       { name: "Colfax Streetscape", details: "Roadway + ADA upgrades", lat: 39.7402, lng: -104.9563 },
       { name: "South Platte Greenway Improvements", details: "Trail enhancement", lat: 39.7526, lng: -105.006 },
@@ -31,6 +34,7 @@ const categories = {
     label: "RNOs",
     color: "#6a4c93",
     sourceLabel: "City and County of Denver Open Data",
+    radiusMiles: SEARCH_RADIUS_MILES,
     items: [],
     fallbackItems: [
       { name: "Capitol Hill United Neighborhoods", details: "Sample fallback record", lat: 39.7318, lng: -104.9806 }
@@ -39,17 +43,18 @@ const categories = {
   groceryStores: {
     label: "Grocery Stores",
     color: "#1b9e77",
-    sourceLabel: "Local sample",
-    items: [
-      { name: "King Soopers - Speer", details: "1155 E 9th Ave", lat: 39.7316, lng: -104.9739 },
-      { name: "Safeway - Corona", details: "560 N Corona St", lat: 39.7266, lng: -104.9747 },
-      { name: "Natural Grocers - Colfax", details: "1433 N Washington St", lat: 39.7402, lng: -104.9781 }
+    sourceLabel: "OpenStreetMap chain grocery features",
+    radiusMiles: SEARCH_RADIUS_MILES,
+    items: [],
+    fallbackItems: [
+      { name: "King Soopers", details: "Sample fallback record", lat: 39.7316, lng: -104.9739 }
     ]
   },
   transitStops: {
     label: "Transit Stops",
     color: "#e63946",
     sourceLabel: "OpenStreetMap transit features",
+    radiusMiles: TRANSIT_RADIUS_MILES,
     items: [],
     fallbackItems: [
       { name: "Union Station", details: "Sample fallback record", lat: 39.7527, lng: -105.0008 }
@@ -59,20 +64,11 @@ const categories = {
     label: "Libraries",
     color: "#3a86ff",
     sourceLabel: "Local sample",
+    radiusMiles: SEARCH_RADIUS_MILES,
     items: [
       { name: "Denver Central Library", details: "10 W 14th Ave Pkwy", lat: 39.7377, lng: -104.9882 },
       { name: "Ross-Cherry Creek Library", details: "305 Milwaukee St", lat: 39.7207, lng: -104.9539 },
       { name: "Eugene Field Branch", details: "810 S University Blvd", lat: 39.7026, lng: -104.9595 }
-    ]
-  },
-  restaurants: {
-    label: "Restaurants",
-    color: "#ef476f",
-    sourceLabel: "Local sample",
-    items: [
-      { name: "Mercantile Dining & Provision", details: "1701 Wynkoop St", lat: 39.753, lng: -105.0005 },
-      { name: "Potager", details: "1109 N Ogden St", lat: 39.7347, lng: -104.9745 },
-      { name: "Cart-Driver RiNo", details: "2500 Larimer St", lat: 39.7581, lng: -104.9844 }
     ]
   }
 };
@@ -108,35 +104,43 @@ initData();
 
 async function initData() {
   const loadingEl = document.getElementById("loading");
-  loadingEl.textContent = "Loading live Site Development Plans, RNOs, and transit stops...";
+  loadingEl.textContent =
+    "Loading live Site Development Plans, RNOs, grocery chains, and transit stops...";
 
-  await Promise.all([loadSiteDevelopmentPlans(), loadRnos(), loadTransitStops()]);
+  await Promise.all([loadSiteDevelopmentPlans(), loadRnos(), loadGroceryStores(), loadTransitStops()]);
 
   drawAllCategoryMarkers();
-  loadingEl.textContent = "Loaded available live datasets. Click the map to inspect nearby features.";
+  loadingEl.textContent =
+    "Loaded available live datasets (transit uses 0.25-mile radius; other categories use 1.5 miles).";
 }
 
 async function loadSiteDevelopmentPlans() {
-  const candidates = [
-    "https://www.denvergov.org/arcgis/rest/services/Planning/Site_Development_Plans/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson",
-    "https://www.denvergov.org/arcgis/rest/services/Planning/Planning_OpenData/FeatureServer/0/query?where=1%3D1&outFields=*&f=geojson"
+  const layerUrls = [
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Site_Development_Plans/FeatureServer/0",
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Planning_OpenData/FeatureServer/0",
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Community_Planning_and_Development_Open_Data/FeatureServer/0"
   ];
 
-  const geojson = await fetchFirstJson(candidates);
-  if (!geojson?.features?.length) {
+  const features = await fetchFirstArcGisFeatures(layerUrls, "1=1");
+  if (!features.length) {
     categories.siteDevelopmentPlans.items = [...categories.siteDevelopmentPlans.fallbackItems];
     return;
   }
 
-  categories.siteDevelopmentPlans.items = geojson.features
+  categories.siteDevelopmentPlans.items = features
     .map((feature) => {
-      const [lng, lat] = feature.geometry?.coordinates ?? [];
+      const geometry = feature.geometry || {};
+      const lat = geometry.y;
+      const lng = geometry.x;
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-      const props = feature.properties || {};
-      const planName = props.projectname || props.plan_name || props.name || "Site Development Plan";
-      const status = props.status || props.plan_status || props.review_status || "Status unavailable";
-      const updated = props.last_edited_date || props.edit_date || props.modified_date;
+      const props = feature.attributes || {};
+      const planName =
+        props.PROJECTNAME || props.PROJECT_NAME || props.PLAN_NAME || props.NAME || "Site Development Plan";
+      const status =
+        props.STATUS || props.PLAN_STATUS || props.REVIEW_STATUS || props.APP_STATUS || "Status unavailable";
+      const updated =
+        props.LAST_EDITED_DATE || props.EDIT_DATE || props.MODIFIED_DATE || props.UPDATEDATE || props.DATEUPDATED;
 
       return {
         name: planName,
@@ -153,37 +157,29 @@ async function loadSiteDevelopmentPlans() {
 }
 
 async function loadRnos() {
-  const candidates = [
-    "https://www.denvergov.org/arcgis/rest/services/Planning/Registered_Neighborhood_Organizations/FeatureServer/0/query?where=1%3D1&outFields=*&returnCentroid=true&f=geojson",
-    "https://www.denvergov.org/arcgis/rest/services/Planning/Planning_OpenData/FeatureServer/4/query?where=1%3D1&outFields=*&returnCentroid=true&f=geojson"
+  const layerUrls = [
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Registered_Neighborhood_Organizations/FeatureServer/0",
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Planning_OpenData/FeatureServer/4",
+    "https://www.denvergov.org/arcgis/rest/services/Planning/Community_Planning_and_Development_Open_Data/FeatureServer/4"
   ];
 
-  const geojson = await fetchFirstJson(candidates);
-  if (!geojson?.features?.length) {
+  const features = await fetchFirstArcGisFeatures(layerUrls, "1=1");
+  if (!features.length) {
     categories.rnos.items = [...categories.rnos.fallbackItems];
     return;
   }
 
-  categories.rnos.items = geojson.features
+  categories.rnos.items = features
     .map((feature) => {
-      const props = feature.properties || {};
-      const centroid = feature.properties?.centroid || feature.geometry?.coordinates;
+      const geometry = feature.geometry || {};
+      const lat = geometry.y;
+      const lng = geometry.x;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-      let lat;
-      let lng;
-      if (Array.isArray(centroid) && centroid.length >= 2) {
-        [lng, lat] = centroid;
-      } else if (feature.geometry?.type === "Point") {
-        [lng, lat] = feature.geometry.coordinates;
-      }
-
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        return null;
-      }
-
-      const name = props.rno_name || props.organization || props.name || "Registered Neighborhood Organization";
-      const number = props.rno_number || props.rno_no || props.objectid;
-      const website = props.website || props.web_url || "";
+      const props = feature.attributes || {};
+      const name = props.RNO_NAME || props.ORGANIZATION || props.NAME || "Registered Neighborhood Organization";
+      const number = props.RNO_NUMBER || props.RNO_NO || props.RNOID || props.OBJECTID;
+      const website = props.WEBSITE || props.WEB_URL || props.URL || "";
 
       return {
         name,
@@ -199,15 +195,63 @@ async function loadRnos() {
   }
 }
 
+async function loadGroceryStores() {
+  const groceryQuery = `
+[out:json][timeout:40];
+(
+  nwr["shop"="supermarket"]["brand"~"King Soopers|Safeway|Whole Foods|Sprouts|Natural Grocers", i](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
+  nwr["shop"="supermarket"]["name"~"King Soopers|Safeway|Whole Foods|Sprouts|Natural Grocers", i](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
+);
+out center tags;
+`;
+
+  try {
+    const response = await fetch("https://overpass-api.de/api/interpreter", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+      body: groceryQuery
+    });
+    if (!response.ok) throw new Error(`Grocery request failed: ${response.status}`);
+
+    const payload = await response.json();
+    const deduped = dedupeByKey(
+      (payload.elements || []).map((element) => {
+        const tags = element.tags || {};
+        const lat = element.lat ?? element.center?.lat;
+        const lng = element.lon ?? element.center?.lon;
+
+        return {
+          key: `${tags.name || tags.brand || "grocery"}-${lat?.toFixed?.(6)}-${lng?.toFixed?.(6)}`,
+          name: tags.name || tags.brand || "Grocery store",
+          details: tags.brand || tags.operator || "Supermarket",
+          lat,
+          lng
+        };
+      })
+    ).filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng));
+
+    categories.groceryStores.items = deduped;
+
+    if (!categories.groceryStores.items.length) {
+      categories.groceryStores.items = [...categories.groceryStores.fallbackItems];
+    }
+  } catch (error) {
+    console.error(error);
+    categories.groceryStores.items = [...categories.groceryStores.fallbackItems];
+  }
+}
+
 async function loadTransitStops() {
   const overpassQuery = `
-[out:json][timeout:30];
+[out:json][timeout:40];
 (
   node["public_transport"="platform"](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
   node["highway"="bus_stop"](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
   node["railway"="station"](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
   node["station"="light_rail"](${DENVER_BBOX.south},${DENVER_BBOX.west},${DENVER_BBOX.north},${DENVER_BBOX.east});
-);
+)->.stops;
+rel(bn.stops)["type"="route"]["route"~"bus|train|light_rail|tram"]->.routes;
+(.stops; .routes;);
 out body;
 `;
 
@@ -223,15 +267,22 @@ out body;
     }
 
     const payload = await response.json();
-    categories.transitStops.items = (payload.elements || [])
+    const elements = payload.elements || [];
+    const routeLinesByStopId = buildRouteLinesByStopId(elements);
+
+    categories.transitStops.items = elements
+      .filter((element) => element.type === "node")
       .map((element) => {
         const tags = element.tags || {};
         const transitType = classifyTransit(tags);
         const name = tags.name || tags.ref || "Transit stop";
+        const directRouteRefs = normalizeRouteRefs(tags.route_ref || tags.routes || tags.lines || tags.ref);
+        const relatedRouteRefs = routeLinesByStopId.get(element.id) || [];
+        const lineRefs = dedupeStrings([...directRouteRefs, ...relatedRouteRefs]).slice(0, 12);
 
         return {
           name,
-          details: transitType,
+          details: `${transitType}${lineRefs.length ? ` · Lines: ${lineRefs.join(", ")}` : " · Lines: unavailable"}`,
           lat: element.lat,
           lng: element.lon
         };
@@ -247,6 +298,32 @@ out body;
   }
 }
 
+function buildRouteLinesByStopId(elements) {
+  const routeLinesByStopId = new Map();
+  const routeRelations = elements.filter((element) => element.type === "relation");
+
+  routeRelations.forEach((relation) => {
+    const tags = relation.tags || {};
+    const relationLineName = tags.ref || tags.name || tags.route || "";
+    if (!relationLineName) return;
+
+    (relation.members || [])
+      .filter((member) => member.type === "node")
+      .forEach((member) => {
+        if (!routeLinesByStopId.has(member.ref)) {
+          routeLinesByStopId.set(member.ref, []);
+        }
+        routeLinesByStopId.get(member.ref).push(relationLineName);
+      });
+  });
+
+  for (const [stopId, lines] of routeLinesByStopId.entries()) {
+    routeLinesByStopId.set(stopId, dedupeStrings(lines));
+  }
+
+  return routeLinesByStopId;
+}
+
 function classifyTransit(tags) {
   if (tags.station === "light_rail") return "Light rail station";
   if (tags.railway === "station") return "Commuter/rail station";
@@ -254,18 +331,77 @@ function classifyTransit(tags) {
   return "Transit platform";
 }
 
-async function fetchFirstJson(urls) {
-  for (const url of urls) {
+async function fetchFirstArcGisFeatures(layerUrls, where) {
+  for (const layerUrl of layerUrls) {
     try {
-      const response = await fetch(url);
-      if (!response.ok) continue;
-      return await response.json();
+      const features = await fetchArcGisAllFeatures(layerUrl, where);
+      if (features.length) return features;
     } catch (error) {
-      console.warn(`Failed to fetch ${url}`, error);
+      console.warn(`Failed to fetch ArcGIS layer ${layerUrl}`, error);
     }
   }
+  return [];
+}
 
-  return null;
+async function fetchArcGisAllFeatures(layerUrl, where) {
+  const allFeatures = [];
+  let offset = 0;
+  const pageSize = 2000;
+
+  while (true) {
+    const url = new URL(`${layerUrl}/query`);
+    url.searchParams.set("where", where);
+    url.searchParams.set("outFields", "*");
+    url.searchParams.set("f", "json");
+    url.searchParams.set("outSR", "4326");
+    url.searchParams.set("returnGeometry", "true");
+    url.searchParams.set("returnCentroid", "true");
+    url.searchParams.set("resultOffset", String(offset));
+    url.searchParams.set("resultRecordCount", String(pageSize));
+
+    const response = await fetch(url);
+    if (!response.ok) break;
+
+    const payload = await response.json();
+    if (!payload.features?.length) break;
+
+    payload.features.forEach((feature) => {
+      if (feature.geometry?.x != null && feature.geometry?.y != null) {
+        allFeatures.push(feature);
+      } else if (feature.centroid?.x != null && feature.centroid?.y != null) {
+        allFeatures.push({ ...feature, geometry: { x: feature.centroid.x, y: feature.centroid.y } });
+      }
+    });
+
+    if (!payload.exceededTransferLimit) break;
+    offset += payload.features.length;
+  }
+
+  return allFeatures;
+}
+
+function normalizeRouteRefs(text) {
+  if (!text || typeof text !== "string") return [];
+  return dedupeStrings(
+    text
+      .split(/[;,/|]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+  );
+}
+
+function dedupeStrings(values) {
+  return [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
+}
+
+function dedupeByKey(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item.key) return true;
+    if (seen.has(item.key)) return false;
+    seen.add(item.key);
+    return true;
+  });
 }
 
 function drawAllCategoryMarkers() {
@@ -305,14 +441,15 @@ function renderNearbyResults(clickLat, clickLng) {
   let totalMatches = 0;
 
   Object.values(categories).forEach((category) => {
+    const radiusMiles = category.radiusMiles ?? SEARCH_RADIUS_MILES;
     const nearby = category.items
       .map((item) => ({
         ...item,
         distance: distanceMiles(clickLat, clickLng, item.lat, item.lng)
       }))
-      .filter((item) => item.distance <= SEARCH_RADIUS_MILES)
+      .filter((item) => item.distance <= radiusMiles)
       .sort((a, b) => a.distance - b.distance)
-      .slice(0, 20);
+      .slice(0, 25);
 
     totalMatches += nearby.length;
 
@@ -326,13 +463,13 @@ function renderNearbyResults(clickLat, clickLng) {
 
     const source = document.createElement("p");
     source.className = "meta";
-    source.textContent = `Source: ${category.sourceLabel}`;
+    source.textContent = `Source: ${category.sourceLabel} · Radius: ${radiusMiles} miles`;
     section.appendChild(source);
 
     if (!nearby.length) {
       const empty = document.createElement("p");
       empty.className = "meta";
-      empty.textContent = "No locations found within 1.5 miles.";
+      empty.textContent = `No locations found within ${radiusMiles} miles.`;
       section.appendChild(empty);
     } else {
       const list = document.createElement("ul");
@@ -347,9 +484,9 @@ function renderNearbyResults(clickLat, clickLng) {
     resultsContainer.appendChild(section);
   });
 
-  summaryEl.textContent = `Found ${totalMatches} places/projects within ${SEARCH_RADIUS_MILES} miles of (${clickLat.toFixed(
+  summaryEl.textContent = `Found ${totalMatches} places/projects within category-specific radii around (${clickLat.toFixed(
     5
-  )}, ${clickLng.toFixed(5)}).`;
+  )}, ${clickLng.toFixed(5)}). Transit is limited to ${TRANSIT_RADIUS_MILES} miles; all other categories use ${SEARCH_RADIUS_MILES} miles.`;
 }
 
 function formatDate(raw) {
