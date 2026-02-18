@@ -17,11 +17,12 @@
       <section class="map-panel">
         <h1>Denver 1.5-Mile Site Context Map</h1>
         <p>
-          Click any point on the Denver map to view nearby Site Development Plans,
-          construction, RNOs, grocery stores, transit stops, libraries, and restaurants
-          within 1.5 miles. This demo ships with a local Denver-focused dataset that can
-          be replaced with live city feeds.
+          Click any point on the map to find nearby Site Development Plans, construction,
+          RNOs, grocery stores, transit stops, libraries, and restaurants within 1.5 miles.
+          Site Development Plans and RNOs are requested from Denver Open Data services, and
+          transit stops are requested from live OpenStreetMap transit features.
         </p>
+        <p id="loading" class="status">Loading datasets…</p>
         <div id="map" aria-label="Map of Denver"></div>
       </section>
 

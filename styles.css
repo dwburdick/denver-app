@@ -77,3 +77,10 @@ h2 {
     height: 55vh;
   }
 }
+
+
+.status {
+  margin: 0.5rem 0 1rem;
+  color: #2f6ee4;
+  font-weight: 600;
+}
